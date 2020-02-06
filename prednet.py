@@ -54,53 +54,52 @@ class PredNet (tf.keras.Model):
         self.ConvLSTM1 = tf.keras.layers.ConvLSTM2D(filters = 6, kernel_size = (3,3), strides = 1, padding = 'same', stateful = False)
         self.targetConv1 = tf.keras.layers.Conv2D(filters = 3, kernel_size = (3,3), strides = 1, padding = 'same')
         self.predConv1 = tf.keras.layers.Conv2D(filters = 3, kernel_size = (3,3), strides = 1, padding = 'same')
-        self.maxPool1 = tf.keras.layers.MaxPool2D(pool_size = (2,2))
-        self.relu1 = tf.keras.layers.ReLU()
 
         # layer 2
         self.ConvLSTM2 = tf.keras.layers.ConvLSTM2D(filters = 128, kernel_size = (3,3), strides = 1, padding = 'same', stateful = False)
         self.targetConv2 = tf.keras.layers.Conv2D(filters = 64, kernel_size = (3,3), strides = 1, padding = 'same')
         self.predConv2 = tf.keras.layers.Conv2D(filters = 64, kernel_size = (3,3), strides = 1, padding = 'same')
-        self.maxPool2 = tf.keras.layers.MaxPool2D(pool_size = (2,2))
-        self.relu2 = tf.keras.layers.ReLU()
-        self.unpool2 = tf.keras.layers.UpSampling2D(size = (2,2))
+
 
         # layer 3
         self.ConvLSTM3 = tf.keras.layers.ConvLSTM2D(filters = 256, kernel_size = (3,3), strides = 1, padding = 'same', stateful = False)
         self.targetConv3 = tf.keras.layers.Conv2D(filters = 128, kernel_size = (3,3), strides = 1, padding = 'same')
         self.predConv3 = tf.keras.layers.Conv2D(filters = 128, kernel_size = (3,3), strides = 1, padding = 'same')
-        self.maxPool3 = tf.keras.layers.MaxPool2D(pool_size = (2,2))
-        self.relu3 = tf.keras.layers.ReLU()
-        self.unpool3 = tf.keras.layers.UpSampling2D(size = (2,2))
+
+
+        self.relu = tf.keras.layers.ReLU()
+        self.unpool = tf.keras.layers.UpSampling2D(size = (2,2))
+        self.pool = tf.keras.layers.MaxPool2D(pool_size = (2,2))
 
     def call(self, x, E1, E2, E3, R1, R2, R3):
 
         # top down updates
         output_3  = self.ConvLSTM3(tf.concat([E3, R3], axis = -1))
-        output_2  = self.ConvLSTM2(tf.concat([E2, R2, tf.expand_dims(self.unpool2(output_3), axis = 0)], axis = -1))
-        output_1  = self.ConvLSTM1(tf.concat([E1, R1, tf.expand_dims(self.unpool3(output_2), axis = 0)], axis = -1))
+        output_2  = self.ConvLSTM2(tf.concat([E2, R2, tf.expand_dims(self.unpool(output_3), axis = 0)], axis = -1))
+        output_1  = self.ConvLSTM1(tf.concat([E1, R1, tf.expand_dims(self.unpool(output_2), axis = 0)], axis = -1))
 
         # Regular Updates layer 1
         pred1 = self.predConv1(output_1)
-        pred1 = self.relu1(pred1)
+        pred1 = self.relu(pred1)
+        pred1_clip = tf.clip_by_value(pred1, 0.0, 1.0)
 
-        E1 = self.relu1(tf.subtract(pred1, x))
+        E1 = self.relu(tf.subtract(pred1, x))
 
-        # Regular Updates layer 1
+        # Regular Updates layer 2
         pred2 = self.predConv2(output_2)
-        pred2 = self.relu2(pred2)
+        pred2 = self.relu(pred2)
 
-        E2 = self.relu2(tf.subtract(pred2, self.maxPool2(self.relu2(self.targetConv2(E1)))))
+        E2 = self.relu(tf.subtract(pred2, self.pool(self.relu(self.targetConv2(E1)))))
 
-        # Regular Updates layer 1
+        # Regular Updates layer 3
         pred3 = self.predConv3(output_3)
-        pred3 = self.relu3(pred3)
-        E3 = self.relu3(tf.subtract(pred3, self.maxPool3(self.relu3(self.targetConv3(E2)))))
+        pred3 = self.relu(pred3)
+        E3 = self.relu(tf.subtract(pred3, self.pool(self.relu(self.targetConv3(E2)))))
 
 
 
 
-        return tf.expand_dims(E1, axis = 0), tf.expand_dims(E2, axis = 0), tf.expand_dims(E3, axis = 0), tf.expand_dims(output_1, axis = 0), tf.expand_dims(output_2, axis = 0), tf.expand_dims(output_3, axis = 0), tf.reduce_mean(pred1, axis = 0)
+        return tf.expand_dims(E1, axis = 0), tf.expand_dims(E2, axis = 0), tf.expand_dims(E3, axis = 0), tf.expand_dims(output_1, axis = 0), tf.expand_dims(output_2, axis = 0), tf.expand_dims(output_3, axis = 0), tf.reduce_mean(pred1_clip, axis = 0)
 
     def reset_states(self):
 
@@ -146,7 +145,7 @@ snippet_size = 10
 vidcap = cv2.VideoCapture(args.path)
 num_frames = int(vidcap.get(cv2.CAP_PROP_FRAME_COUNT))
 steps = int(num_frames/(snippet_size))
-weight = 1.0
+weight = 0.0
 
 E1, E2, E3, R1, R2, R3 = predictModel.reset_states()
 
